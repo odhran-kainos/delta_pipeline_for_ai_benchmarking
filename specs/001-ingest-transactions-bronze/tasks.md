@@ -56,6 +56,8 @@
 - [ ] T010 [P] [US2] Add aggregated metrics method in `pipelines/bronze_transactions_pipeline.py` to compute rows/invalid/dedupe counts in a single Spark action.
 - [ ] T011 [US2] Emit structured JSON metrics and configuration snapshot from `pipelines/bronze_transactions_pipeline.py` after successful runs.
 - [ ] T012 [US2] Extend `tests/test_t1_bronze_ingestion.py` to assert metrics completeness (rows_raw, rows_invalid, rows_loaded, ingestion_duration_seconds, dedupe_dropped) and alignment with Delta queries.
+	- [ ] T019 [US2] Capture wall-clock runtime (start/stop timestamps) inside the pipeline run, derive SLA status fields (<=15 min) in the metrics payload, and surface them to logs/observability hooks.
+	- [ ] T020 [US2] Extend monitoring tests to validate SLA metrics: simulate a run, assert `ingestion_duration_seconds` and SLA flags are emitted, and confirm Prefect flow wiring propagates them.
 
 **Checkpoint**: Operators can rely on returned metrics/logs to validate run health.
 
@@ -69,9 +71,11 @@
 
 ### Implementation
 
-- [ ] T013 [P] [US3] Implement quarantine writer in `pipelines/bronze_transactions_pipeline.py` to persist invalid rows with `rejection_reason`, `validation_rule_id`, `_quarantine_ts`, `_expires_at`, and `status` fields.
-- [ ] T014 [US3] Integrate retention logic using `retention_days` config so `_expires_at` is populated and bronze writes exclude quarantined rows.
-- [ ] T015 [US3] Add quarantine-focused assertions to `tests/test_t1_bronze_ingestion.py` to verify invalid rows are stored with metadata and excluded from bronze counts.
+	- [ ] T013 [P] [US3] Implement quarantine writer in `pipelines/bronze_transactions_pipeline.py` to persist invalid rows with `rejection_reason`, `validation_rule_id`, `_quarantine_ts`, `_expires_at`, and `status` fields, and surface a sanitized `export_quarantine_records()` helper wired to config paths.
+	- [ ] T014 [US3] Integrate retention logic using `retention_days` config so `_expires_at` is populated, bronze writes exclude quarantined rows, and export helpers publish Delta files under `data/quarantine/transactions/export/` for upstream pickup.
+	- [ ] T015 [US3] Add quarantine-focused assertions to `tests/test_t1_bronze_ingestion.py` to verify invalid rows are stored with metadata, excluded from bronze counts, and available via the export helper/path for replay.
+	- [ ] T021 [US3] Add latency tracking to the export helper so it stamps `export_ready_ts`, calculates time since pipeline completion, and emits structured logs/metrics validating the 5-minute SLA.
+	- [ ] T022 [US3] Write tests that exercise the export helper, confirming `export_ready_ts` is recorded, latency metrics populate, and alerts/logs trigger when the 5-minute threshold is breached.
 
 **Checkpoint**: Data quality analysts can triage invalid records using the quarantine table alone.
 
@@ -79,9 +83,9 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T016 [P] Document run_id usage, dedupe metrics, and quarantine workflow updates in `docs/best-practices-delta-lake-bronze-pipelines.md`.
-- [ ] T017 Refresh Prefect orchestration example in `pipelines/orchestration/prefect_flows.py` to pass `run_id` and log metrics emitted by the bronze pipeline.
-- [ ] T018 Execute `pytest tests/test_t1_bronze_ingestion.py -q` and capture results in the feature log (commit message or PR notes).
+	- [ ] T016 [P] Document run_id usage, dedupe metrics, quarantine workflow, and export handoff steps (location, retention, replay expectations) in `docs/best-practices-delta-lake-bronze-pipelines.md`.
+	- [ ] T017 Refresh Prefect orchestration example in `pipelines/orchestration/prefect_flows.py` to pass `run_id`, log metrics emitted by the bronze pipeline, and surface the configured quarantine export path for operators.
+	- [ ] T018 Execute `pytest tests/test_t1_bronze_ingestion.py -q` and capture results in the feature log (commit message or PR notes).
 
 ---
 

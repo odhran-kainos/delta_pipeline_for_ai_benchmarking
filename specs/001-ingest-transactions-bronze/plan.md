@@ -48,9 +48,9 @@ Implement a bronze-layer ingestion pipeline that reads JSON transaction batches,
   - Align constitution check after design assets, ensuring no regressions in bronze principles.
 
 3. **Phase 2 – Implementation**
-  - Refactor `pipelines/bronze_transactions_pipeline.py`: add schema loader, config validation, metadata enrichment, deduplication window, single-pass metrics, append write, and quarantine handling.
+  - Refactor `pipelines/bronze_transactions_pipeline.py`: add schema loader, config validation, metadata enrichment, deduplication window, export handler for quarantine records, single-pass metrics, append write, and quarantine handling.
   - Extend `pipelines/utils/delta_operations.py` if needed for shared dedupe/write helpers.
-  - Update `config/pipeline_config.yaml` with transactions source/quarantine entries.
+  - Update `config/pipeline_config.yaml` with transactions source/quarantine entries, including an explicit `quarantine_export_path` for upstream access.
 
 4. **Phase 3 – Testing & Observability**
   - Enhance `tests/test_t1_bronze_ingestion.py` with scenarios covering dedupe, quarantine retention metadata, and metrics totals.
@@ -60,6 +60,7 @@ Implement a bronze-layer ingestion pipeline that reads JSON transaction batches,
 5. **Phase 4 – Optimization & Documentation**
   - Document optimize/vacuum cadence in `docs/best-practices-delta-lake-bronze-pipelines.md` (if updates needed).
   - Prepare runbook notes for orchestration (Prefect flow) and publish metrics dashboards alignment.
+  - Capture export workflow and downstream handoff expectations (paths, refresh cadence) in `quickstart.md` and the bronze best-practices guide.
 
 ## Project Structure
 
@@ -76,15 +77,7 @@ specs/001-ingest-transactions-bronze/
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
-src/
-ios/ or android/
 ```text
 pipelines/
 ├── base_pipeline.py
@@ -95,7 +88,7 @@ pipelines/
 │   ├── spark_session.py
 │   └── __init__.py
 └── orchestration/
-  └── prefect_flows.py
+    └── prefect_flows.py
 
 config/
 ├── pipeline_config.yaml                  # Source/destination paths
@@ -115,8 +108,6 @@ data/
 docs/
 └── best-practices-delta-lake-bronze-pipelines.md
 ```
-
-directories captured above]
 **Structure Decision**: Single Python data engineering repository. Work will modify `pipelines/bronze_transactions_pipeline.py`, extend utilities under `pipelines/utils`, update configuration in `config/pipeline_config.yaml`, and add supporting docs/tests under existing `tests` and `docs` trees.
 
 ## Complexity Tracking
