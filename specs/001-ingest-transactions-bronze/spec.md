@@ -83,13 +83,13 @@ Data quality analysts need access to rejected rows with context so they can reme
 
 ### Functional Requirements
 
-- **FR-001**: Pipeline MUST read transactions from the configured source path and format, falling back to inference only when explicit schema loading fails and logging that fallback.
+- **FR-001**: Pipeline MUST read transactions from the configured source path and format, Fail the run when the schema can’t be loaded; document remediation instead of inferring at runtime.
 - **FR-002**: Pipeline MUST apply the explicit transactions schema (transaction_id, customer_id, event_timestamp, amount, currency) and cast values to their target types before further processing.
 - **FR-003**: Pipeline MUST append metadata columns `_ingest_ts`, `_ingest_date`, `_pipeline_run_id`, and `_source_file` to every record written to bronze.
 - **FR-004**: Pipeline MUST validate that `transaction_id` is present and reject rows failing this rule without blocking valid records.
 - **FR-005**: Pipeline MUST persist rejected rows to a Delta-backed quarantine dataset with rejection reason, run ID, and source file reference, retaining entries for 30 days before automated purge.
 - **FR-006**: Pipeline MUST enforce idempotency by deduplicating records on `transaction_id`, retaining the record with the most recent `_ingest_ts` when duplicates exist.
-- **FR-007**: Pipeline MUST write to `bronze_transactions` in append mode with partitioning by `_ingest_date` and provide an option for merge-based upserts if bronze already exists.
+- **FR-007**: Pipeline MUST write to `bronze_transactions` in append mode with partitioning by `_ingest_date`.
 - **FR-008**: Pipeline MUST emit structured metrics (`rows_raw`, `rows_invalid`, `rows_loaded`, `ingestion_duration_seconds`) and log warnings when validation rejects occur.
 - **FR-009**: Pipeline MUST fail fast with descriptive errors when configuration is missing, source data is unreadable, or schema enforcement cannot be satisfied.
 - **FR-010**: Pipeline MUST expose an export of quarantine records for upstream systems to correct; replay of corrected data is initiated by the upstream system resubmitting cleaned files through the standard ingestion path.
