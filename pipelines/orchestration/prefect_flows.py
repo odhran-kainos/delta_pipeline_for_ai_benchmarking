@@ -1,83 +1,61 @@
-from prefect import flow, task
-from pipelines.utils.spark_session import create_spark_session
-from pipelines.sample_etl_pipeline import SampleETLPipeline
+import json
 import logging
+from pathlib import Path
+from typing import Any, Dict
+from uuid import uuid4
+
+from prefect import flow, task
+
+from pipelines.bronze_transactions_pipeline import BronzeTransactionsPipeline
+from pipelines.utils.spark_session import create_spark_session
+
 
 @task
-def run_etl_pipeline():
-    """Task to run the ETL pipeline"""
+def run_bronze_ingestion(config_path: str = "config/pipeline_config.yaml") -> Dict[str, Any]:
+    """Execute the bronze transactions pipeline with a Prefect-supplied run identifier."""
+
     spark = create_spark_session()
-    
     try:
-        pipeline = SampleETLPipeline(spark)
-        pipeline.run()
-        return "Pipeline completed successfully"
+        pipeline = BronzeTransactionsPipeline(spark, config_path=config_path)
+        run_id = f"bronze-prefect-{uuid4()}"
+        metrics = pipeline.run(run_id=run_id)
+        logging.info("Bronze ingestion metrics: %s", json.dumps(metrics))
+
+        export_root = Path(metrics["config_snapshot"]["quarantine"]["export_path"])
+        logging.info("Quarantine export available at %s/%s", export_root, metrics["pipeline_run_id"])
+        return metrics
     finally:
         spark.stop()
+
 
 @task
-def validate_pipeline_output():
-    """Task to validate pipeline output"""
-    spark = create_spark_session()
-    
-    try:
-        # Check if all layers exist and have data
-        bronze_df = spark.read.format("delta").load("data/bronze/employees")
-        silver_df = spark.read.format("delta").load("data/silver/employees") 
-        gold_df = spark.read.format("delta").load("data/gold/department_stats")
-        
-        bronze_count = bronze_df.count()
-        silver_count = silver_df.count()
-        gold_count = gold_df.count()
-        
-        logging.info(f"Bronze layer: {bronze_count} records")
-        logging.info(f"Silver layer: {silver_count} records") 
-        logging.info(f"Gold layer: {gold_count} records")
-        
-        if bronze_count > 0 and silver_count > 0 and gold_count > 0:
-            return "Validation successful"
-        else:
-            raise ValueError("Validation failed - empty tables detected")
-            
-    finally:
-        spark.stop()
+def validate_bronze_metrics(metrics: Dict[str, Any]) -> str:
+    """Validate SLA compliance and metric reconciliation for bronze ingestion."""
 
-@flow(name="daily-lakehouse-pipeline")
-def daily_lakehouse_flow():
-    """Daily lakehouse processing flow"""
-    logging.info("Starting daily lakehouse processing")
-    
-    # Run the ETL pipeline
-    pipeline_result = run_etl_pipeline()
-    
-    # Validate the output
-    validation_result = validate_pipeline_output()
-    
-    logging.info("Daily lakehouse processing completed")
-    return {
-        "pipeline_result": pipeline_result,
-        "validation_result": validation_result
-    }
+    if metrics["rows_loaded"] + metrics["rows_invalid"] != metrics["rows_raw"]:
+        raise ValueError("Metric reconciliation failed for bronze ingestion")
 
-@flow(name="incremental-pipeline")  
-def incremental_flow():
-    """Incremental processing flow for real-time data"""
-    logging.info("Starting incremental processing")
-    
-    spark = create_spark_session()
-    
-    try:
-        # This would typically read from a streaming source
-        # For demo purposes, we'll just run the batch pipeline
-        pipeline = SampleETLPipeline(spark)
-        pipeline.run()
-        
-        logging.info("Incremental processing completed")
-        return "Incremental pipeline completed successfully"
-        
-    finally:
-        spark.stop()
+    if not metrics.get("sla_15_min_passed", False):
+        raise ValueError("Bronze ingestion exceeded the 15 minute SLA")
+
+    logging.info(
+        "Operator handoff: review export dataset at %s/%s",
+        metrics["config_snapshot"]["quarantine"]["export_path"],
+        metrics["pipeline_run_id"],
+    )
+    return "Bronze ingestion validated"
+
+
+@flow(name="bronze-transactions-ingestion")
+def bronze_ingestion_flow(config_path: str = "config/pipeline_config.yaml") -> Dict[str, Any]:
+    """Prefect flow that runs bronze ingestion and surfaces metrics for operators."""
+
+    logging.info("Starting bronze transactions ingestion flow")
+    metrics = run_bronze_ingestion(config_path)
+    validation_status = validate_bronze_metrics(metrics)
+    logging.info("Bronze ingestion flow finished")
+    return {"metrics": metrics, "validation": validation_status}
+
 
 if __name__ == "__main__":
-    # Run the daily flow
-    daily_lakehouse_flow()
+    bronze_ingestion_flow()

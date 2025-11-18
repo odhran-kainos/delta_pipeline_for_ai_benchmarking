@@ -1,6 +1,7 @@
 from pyspark.sql import DataFrame
 from delta.tables import DeltaTable
 import logging
+from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +89,29 @@ class DeltaOperations:
         
         delta_table = DeltaTable.forPath(self.spark, table_path)
         return delta_table.history(limit)
+
+    def append_with_partitions(
+        self,
+        df: DataFrame,
+        path: str,
+        partition_by: Optional[Iterable[str]] = None,
+        optimize: bool = False,
+        optimize_zorder: Optional[Iterable[str]] = None,
+        vacuum_hours: Optional[int] = None,
+    ) -> str:
+        """Append to a Delta table with optional partitioning and post-write maintenance."""
+
+        writer = df.write.format("delta").mode("append")
+        if partition_by:
+            writer = writer.partitionBy(*partition_by)
+
+        writer.save(path)
+        part_msg = f" partitions={list(partition_by)}" if partition_by else ""
+        logger.info("Appended DataFrame to %s%s", path, part_msg)
+
+        if optimize:
+            self.optimize_table(path, list(optimize_zorder) if optimize_zorder else None)
+        if vacuum_hours:
+            self.vacuum_table(path, retention_hours=vacuum_hours)
+
+        return path

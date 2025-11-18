@@ -10,3 +10,14 @@ data_quality:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+data_sources:
+  transactions:
+    path: "data/raw_seed/transactions.json"
+    format: "json"
+    schema_enforcement: true
+
+quarantine:
+  transactions_path: "data/quarantine/transactions"
+  export_path: "data/quarantine/transactions/export"
+  retention_days: 30

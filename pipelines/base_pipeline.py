@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame
-from typing import Dict, Any
+from typing import Dict, Any, Sequence
 import yaml
 import logging
 from pathlib import Path
@@ -17,6 +17,25 @@ class BasePipeline(ABC):
         """Load pipeline configuration from YAML file"""
         with open(config_path, 'r') as file:
             return yaml.safe_load(file)
+
+    def require_config_keys(self, config: Dict[str, Any], required_paths: Sequence[str]) -> None:
+        """Ensure required dotted configuration paths exist and are non-empty."""
+        missing = []
+        for path in required_paths:
+            current: Any = config
+            for segment in path.split('.'):
+                if isinstance(current, dict) and segment in current:
+                    current = current[segment]
+                else:
+                    missing.append(path)
+                    break
+            else:
+                if current in (None, "", []):
+                    missing.append(path)
+
+        if missing:
+            paths = ', '.join(sorted(set(missing)))
+            raise ValueError(f"Missing required configuration keys: {paths}")
     
     @abstractmethod
     def extract(self) -> DataFrame:
