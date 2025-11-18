@@ -1,50 +1,40 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Delta Lake Pipelines Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Bronze Layer Immutability and Lineage
+Bronze tables are append-only, capture raw data with full lineage, and never use destructive write modes. Every ingestion run must add metadata columns (`_ingest_ts`, `_ingest_date`, `_pipeline_run_id`, `_source_file`) and maintain deduplication keys to guarantee idempotency and traceability.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Data Quality Gatekeeping
+Pipelines enforce explicit schemas, validation rules, and quarantine flows. Invalid or suspicious records are never dropped silently; they are routed to Delta-backed quarantine tables with rejection reasons and run identifiers. Schema violations or missing mandatory fields abort the run unless an approved remediation path exists.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Performance and Cost Efficiency
+We minimize Spark actions, reuse cached DataFrames, and collect metrics in a single pass. Partitioning, Z-ORDER, and VACUUM strategies are mandatory for every Delta table. Resource usage and runtime metrics (`rows_per_second`, stage durations) are logged as structured JSON for observability.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Schema and Configuration Governance
+All schemas are versioned, defined explicitly in code, and evolved through controlled merges (`mergeSchema` only when approved). Configuration access uses defensive patterns with validation at startup. Paths are constructed with `pathlib.Path` to preserve portability across environments.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Resilience, Testing, and Review Discipline
+Each pipeline is decomposed into testable functions, covered by unit and integration tests across bronze, silver, and gold layers. Error handling wraps I/O and Spark operations with actionable messages. Code reviews verify compliance with this constitution, medallion architecture contracts, and data platform security requirements.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Operational Standards for the Medallion Architecture
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- **Bronze Layer**: Append/merge only, deduplicated on business keys plus ingestion timestamp, quarantine tables for invalid data, partitioned by `_ingest_date` at minimum.
+- **Silver Layer**: Normalized, conformed data with business logic, idempotent transformations, and reconciliation checks against bronze counts. Schema evolution requires data contract approval.
+- **Gold Layer**: Serving-ready aggregates and marts, optimized for consumption with freshness SLAs. Downstream tables document source lineage back to silver/bronze.
+- **Observability**: Pipelines emit structured logs, Delta history is retained for 30 days, and table optimization jobs run on a documented cadence.
+- **Security and Compliance**: Configuration secrets never reside in code, PII handling adheres to organizational policy, and access patterns respect least privilege.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Workflow and Review Gates
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+1. **Design**: Engineers produce a lightweight design doc covering schema changes, validation rules, performance expectations, and downstream impact.
+2. **Implementation**: Code adheres to SOLID Spark practices (narrow transformations preferred, broadcast joins explicit, no eager actions in transformations) and leverages shared utility libraries.
+3. **Testing**: Mandatory unit tests for transformations, integration tests for Delta writes, and replay tests for idempotency. Test data mirrors edge cases (null keys, schema drift, duplicate payloads).
+4. **Review**: Reviewers validate this constitution, confirm medallion contracts, ensure metrics/quarantine coverage, and request performance estimations. Any deviation requires an exception ticket with mitigation plan.
+5. **Deployment**: Release notes include table changes, optimization strategy, and runbook updates. Canary or backfill plans accompany schema-breaking changes.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes conflicting style guides for PySpark medallion pipelines. Amendments require a design review, data governance approval, and migration plan for existing tables. Every pull request must state compliance status; reviewers block merges when violations are unresolved. Runtime engineers consult `docs/best-practices-delta-lake-bronze-pipelines.md` for detailed guidance.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2025-11-18 | **Last Amended**: 2025-11-18
