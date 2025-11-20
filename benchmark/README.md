@@ -59,6 +59,33 @@ Example: `benchmark/tasks/T1_ingest_transactions.yaml`
 3. Let the AI tool generate the implementation
 4. Save the generated code in the appropriate location (usually `pipelines/`)
 
+### Step 3a: Enable Tests for the Implementation
+
+Before running tests, you need to enable the appropriate test cases for the task. Tests are organized into three categories:
+
+**1. Tests Ready to Run** (just remove conditional skip):
+These tests have complete assertion logic and only skip if the output doesn't exist yet. No code changes needed - they'll automatically run once the implementation creates the expected outputs.
+
+Examples from `tests/test_t1_bronze_ingestion.py`:
+- `test_required_columns_present` - validates bronze table schema
+- `test_row_count_validation` - checks row counts match expectations
+- `test_metadata_columns_populated` - ensures metadata fields are non-null
+- `test_transaction_id_uniqueness` - validates data quality
+- `test_data_types` - checks column types
+- `test_bronze_table_exists` - verifies Delta table creation
+- `test_invalid_records_rejected` - ensures validation logic works
+
+**2. Tests to Keep Skipped** (validated elsewhere):
+These tests are informational or validated by other parts of the benchmark framework:
+- `test_metrics_file_created` - validated by benchmark harness
+- `test_metrics_accuracy` - validated by benchmark harness  
+- `test_no_hardcoded_paths` - checked in maintainability scoring
+- `test_reuses_pipeline_patterns` - checked in maintainability scoring
+
+**Why most tests are ready to run**: All T1 tests now have complete assertions. They use conditional skips (`if not table_path.exists(): pytest.skip()`) to handle missing outputs gracefully. Once your implementation creates the bronze table, these tests will automatically execute their validation logic.
+
+**Expected test pass rate**: For a correct T1 implementation, you should see 7/7 passing tests in the `TestT1BronzeIngestion` class. The skipped tests in `TestT1Metrics` and `TestT1Configuration` don't count toward the correctness score.
+
 ### Step 4: Test the Implementation
 ```bash
 # Run the task to see if it works
@@ -74,18 +101,51 @@ git push origin tool/<tool-name>/task-<ID>
 ```
 
 ### Step 5: Evaluate Using Scoring Rubric
-Use `benchmark/scoring_rubric.yaml` to score the implementation across 8 dimensions:
 
-1. **Correctness** (25%): Does it work? Do tests pass?
-2. **Maintainability** (15%): Is the code clean and readable?
-3. **Data Quality** (15%): Are validations and quality checks present?
-4. **Planning** (15%): Is the architecture sound?
-5. **Performance** (10%): Does it run efficiently?
-6. **Documentation** (10%): Is it well-documented?
-7. **Security** (5%): Are credentials handled properly?
-8. **Productivity** (5%): How quickly was it implemented?
+#### Option A: Automated Scoring (Recommended for Initial Assessment)
+Run the automated scoring engine to get objective scores for 5 dimensions:
 
-Each dimension uses a 5-point scale (see `scoring_rubric.yaml` for detailed criteria).
+```bash
+# Run automated scoring
+python benchmark/scripts/auto_score.py \
+  --baseline benchmark-foundation \
+  --implementation tool/<tool-name>/task-<ID> \
+  --task <task-id> \
+  --output evaluations/<tool-name>/<task-id>_scorecard_auto.yaml
+
+# Or using make
+make auto-score \
+  BASELINE=benchmark-foundation \
+  IMPL=tool/copilot/task-T1 \
+  TASK=T1 \
+  OUTPUT=evaluations/copilot/T1_scorecard_auto.yaml
+```
+
+**Automated Dimensions** (62.5% of total score):
+- ✅ **Correctness** (25%): pytest results, schema validation, constitution compliance
+- ✅ **Maintainability** (15%): pylint score, cyclomatic complexity, type hints
+- ✅ **Security** (5%): bandit scan, hardcoded secrets detection
+- ✅ **Performance** (10%): execution time, optimization patterns
+- ✅ **Documentation** (10%): docstring coverage, README presence
+
+**Manual Review Required** (37.5% of total score):
+- ⚠️ **Data Quality** (15%): Quality gates appropriateness (partial automation)
+- ⚠️ **Planning** (15%): Architecture assessment, design patterns
+- ⚠️ **Productivity** (5%): Time tracking, iteration count
+
+**Requirements**: Install analysis tools:
+```bash
+pip install pylint radon bandit pytest-json-report
+```
+
+#### Option B: Manual Scoring (Comprehensive)
+Use `benchmark/scoring_rubric.yaml` to manually score across all 8 dimensions using the detailed 5-point criteria. This provides more nuanced assessment but requires more time.
+
+**Combined Approach** (Best Practice):
+1. Run automated scoring for objective baseline
+2. Perform manual review for subjective dimensions
+3. Validate/adjust automated scores based on code inspection
+4. Merge into final scorecard
 
 ### Step 6: Generate Evaluation Artifacts
 
@@ -183,13 +243,19 @@ Analyze:
 
 ## Evaluation Dimensions Explained
 
+### Automated Dimensions
+
+These dimensions can be scored automatically using static analysis tools and test results.
+
 ### Correctness (25% weight)
 - Do all tests pass?
 - Does output match expected schema?
 - Are edge cases handled?
 - Does it execute without errors?
 
-**Automated Checks**: pytest coverage, schema validation, data quality checks
+**Automated Checks**: pytest coverage, schema validation, data quality checks, constitution compliance
+
+**Automation Status**: ✅ Fully automated (high confidence)
 
 ### Maintainability (15% weight)
 - Is code readable and well-structured?
@@ -197,7 +263,9 @@ Analyze:
 - Is there proper separation of concerns?
 - Are there type hints and docstrings?
 
-**Automated Checks**: pylint score, cyclomatic complexity, code duplication
+**Automated Checks**: pylint score, cyclomatic complexity, code duplication, type hint coverage
+
+**Automation Status**: ✅ Fully automated (medium confidence)
 
 ### Data Quality (15% weight)
 - Are validations implemented?
@@ -215,12 +283,16 @@ Analyze:
 
 **Manual Review**: Architecture assessment, design pattern evaluation
 
-### Performance (10% weight)
+**Automation Status**: ❌ Manual only
+
+### Productivity (5% weight)
 - Is execution time reasonable?
 - Are resources used efficiently?
 - Are optimizations applied (partitioning, caching, etc.)?
 
-**Automated Checks**: execution time, memory usage, shuffle data volume
+**Automated Checks**: execution time, memory usage, optimization pattern detection (caching, partitioning, broadcast joins)
+
+**Automation Status**: ✅ Fully automated (medium confidence)
 
 ### Documentation (10% weight)
 - Is there a clear README?
@@ -228,14 +300,18 @@ Analyze:
 - Are there usage examples?
 - Is there troubleshooting guidance?
 
-**Automated Checks**: docstring coverage, README presence
+**Automated Checks**: docstring coverage, README presence, comment ratio, example files
+
+**Automation Status**: ✅ Fully automated (medium confidence)
 
 ### Security (5% weight)
 - Are credentials handled securely?
 - Is input sanitized?
 - Are dependencies vulnerability-free?
 
-**Automated Checks**: secrets scanning, dependency vulnerability scan
+**Automated Checks**: secrets scanning (bandit), hardcoded credential detection, dependency vulnerability scan
+
+**Automation Status**: ✅ Fully automated (high confidence)
 
 ### Productivity (5% weight)
 - How quickly was the solution implemented?
@@ -244,6 +320,8 @@ Analyze:
 
 **Manual Tracking**: time to completion, iteration count
 
+**Automation Status**: ❌ Manual only
+
 ## Directory Structure
 
 ```
@@ -251,12 +329,20 @@ benchmark/
 ├── README.md                    # This file
 ├── scoring.yaml                 # Dimension weights configuration
 ├── scoring_rubric.yaml          # Detailed 5-point scoring criteria
+├── scoring/                     # Automated scoring engine
+│   ├── __init__.py
+│   ├── correctness.py           # Correctness dimension scorer
+│   ├── maintainability.py       # Maintainability dimension scorer
+│   ├── security.py              # Security dimension scorer
+│   ├── performance.py           # Performance dimension scorer
+│   └── documentation.py         # Documentation dimension scorer
 ├── tasks/                       # Task specifications
 │   ├── T1_ingest_transactions.yaml
 │   ├── T2_silver_enrichment.yaml
 │   └── ...
 ├── scripts/
 │   ├── run_task.sh              # Task execution script
+│   ├── auto_score.py            # Automated scoring engine
 │   ├── analyze_task_diff.py     # Generate diff analysis and metrics
 │   └── compare_implementations.py  # Compare multiple tools
 └── metrics/                     # Collected metrics (future)

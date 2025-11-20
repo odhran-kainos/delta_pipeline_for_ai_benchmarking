@@ -27,6 +27,12 @@ jupyter
 notebook
 pytest
 pytest-cov
+pytest-json-report
+
+# Code quality and security analysis (for automated scoring)
+pylint
+radon
+bandit
 
 # Additional utilities
 python-dateutil

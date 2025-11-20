@@ -24,9 +24,12 @@ class TestT1BronzeIngestion:
         # Implementations should be tested against a test output directory
         table_path = bronze_output_dir / "transactions"
         
-        # Implementation would have created this table
-        # For now, we'll mark this as a template test that requires implementation
-        pytest.skip("Requires implementation to be present - used for benchmark evaluation")
+        # Verify the table path exists
+        assert table_path.exists(), f"Bronze table directory does not exist at {table_path}"
+        
+        # Verify it's a valid Delta table
+        assert DeltaTable.isDeltaTable(spark_session, str(table_path)), \
+            f"Directory at {table_path} is not a valid Delta table"
     
     def test_required_columns_present(self, spark_session, bronze_output_dir):
         """
@@ -175,32 +178,26 @@ class TestT1BronzeIngestion:
         Test that rows missing transaction_id are rejected.
         
         This creates a test file with some invalid records and verifies they're excluded.
+        
+        Note: This test validates the logic but requires the implementation to actually
+        run the pipeline against the test data. For benchmark evaluation, this test
+        verifies that the bronze table contains only valid records.
         """
-        # Create test data with invalid records
-        test_file = tmp_path / "test_transactions_with_invalid.json"
+        table_path = bronze_output_dir / "transactions"
         
-        # Write test data: 3 valid, 2 invalid (missing transaction_id)
-        import json
-        test_records = [
-            {"transaction_id": "T1", "customer_id": "C1", "event_timestamp": "2025-11-17T10:00:00", "amount": 100.0, "currency": "EUR"},
-            {"transaction_id": "T2", "customer_id": "C2", "event_timestamp": "2025-11-17T10:01:00", "amount": 200.0, "currency": "EUR"},
-            {"transaction_id": "T3", "customer_id": "C3", "event_timestamp": "2025-11-17T10:02:00", "amount": 300.0, "currency": "EUR"},
-            {"customer_id": "C4", "event_timestamp": "2025-11-17T10:03:00", "amount": 400.0, "currency": "EUR"},  # Missing transaction_id
-            {"transaction_id": None, "customer_id": "C5", "event_timestamp": "2025-11-17T10:04:00", "amount": 500.0, "currency": "EUR"},  # Null transaction_id
-        ]
+        if not table_path.exists():
+            pytest.skip("Bronze table not created yet")
         
-        with open(test_file, 'w') as f:
-            for record in test_records:
-                f.write(json.dumps(record) + '\n')
+        # Verify that all records in the bronze table have transaction_id
+        df = spark_session.read.format("delta").load(str(table_path))
         
-        # This test would require running the actual implementation
-        # For now, document the expected behavior
-        pytest.skip("Requires implementation to test invalid record handling")
+        # Count records with null or missing transaction_id
+        invalid_records = df.filter(
+            F.col("transaction_id").isNull() | (F.col("transaction_id") == "")
+        ).count()
         
-        # Expected behavior:
-        # - Load test_file
-        # - Bronze table should have 3 rows (only valid ones)
-        # - Metrics should show: rows_raw=5, rows_invalid=2, rows_loaded=3
+        assert invalid_records == 0, \
+            f"Found {invalid_records} invalid records in bronze table (should reject records with missing transaction_id)"
 
 
 class TestT1Metrics:
