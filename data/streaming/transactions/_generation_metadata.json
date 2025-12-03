@@ -1,0 +1,17 @@
+{
+  "total_events": 770,
+  "unique_customers": 50,
+  "micro_batches": 3,
+  "purchases": 529,
+  "refunds": 121,
+  "transfers": 120,
+  "late_within_watermark": 39,
+  "late_beyond_watermark": 18,
+  "velocity_burst_events": 41,
+  "velocity_burst_customers": 5,
+  "seed": 42,
+  "time_range_hours": 48,
+  "watermark_minutes": 10,
+  "session_gap_minutes": 30,
+  "generated_at": "2025-12-03T14:35:17.136393"
+}

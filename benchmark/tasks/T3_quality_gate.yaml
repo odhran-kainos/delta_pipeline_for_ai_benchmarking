@@ -1,0 +1,208 @@
+id: T3
+title: "Quality Gate with Quarantine Management"
+complexity: "⭐⭐ Intermediate"
+description: |
+  Implement a configurable data quality gate that validates silver-layer transaction data
+  against business rules, routes failures to quarantine tables, and produces quality metrics.
+  
+  This task extends the quarantine concept from T1 into a reusable, configurable quality
+  framework that can be applied to any Delta table.
+
+goals:
+  - Create `pipelines/quality_gate_pipeline.py` with a rule-based validation engine
+  - Externalize quality rules in `config/quality_rules.yaml` (configuration-driven)
+  - Route failing records to quarantine with full context about failures
+  - Generate quality metrics for monitoring and alerting
+  - Support multiple rule types (null checks, range checks, referential integrity, etc.)
+
+requirements:
+  functional:
+    - Read silver transactions from `data/silver/transactions/`
+    - Validate against rules defined in `config/quality_rules.yaml`
+    - Support rule types:
+        - null_check: Field must not be null
+        - range_check: Numeric value within min/max bounds
+        - regex_match: String matches pattern (e.g., currency codes)
+        - referential_integrity: Value exists in reference table
+        - timeliness: Timestamp within acceptable window
+    - Route passing records to `data/gold/validated_transactions/`
+    - Route failing records to `data/quarantine/transactions/` with:
+        - All original columns preserved
+        - `_failed_rules`: Array of rule IDs that failed
+        - `_failure_reasons`: Human-readable failure descriptions
+        - `_quarantine_ts`: Timestamp when quarantined
+        - `_severity`: CRITICAL, WARNING, or INFO based on rule config
+    - Generate metrics to `data/quality_metrics/transactions/`:
+        - Pass/fail counts per rule
+        - Overall pass rate
+        - Severity distribution
+        - Processing timestamp
+  
+  non_functional:
+    - Rules must be configurable without code changes
+    - Processing time < 30 seconds for 10K records
+    - Idempotent: re-running produces same results
+    - Memory efficient: stream processing, not collect()
+
+input_data:
+  silver_transactions:
+    location: "data/silver/transactions/"
+    format: "delta"
+    columns:
+      - name: transaction_id
+        type: string
+      - name: customer_id
+        type: string
+      - name: customer_name
+        type: string
+        nullable: true
+      - name: event_timestamp
+        type: timestamp
+      - name: amount
+        type: double
+      - name: currency
+        type: string
+      - name: transaction_value_vat
+        type: double
+      - name: _enriched_ts
+        type: timestamp
+
+  reference_data:
+    currencies:
+      valid_codes: ["EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD"]
+    customers:
+      location: "data/silver/customers/"
+      format: "delta"
+
+output_schema:
+  validated_transactions:
+    location: "data/gold/validated_transactions/"
+    format: "delta"
+    columns:
+      - name: transaction_id
+        type: string
+      - name: customer_id
+        type: string
+      - name: customer_name
+        type: string
+      - name: event_timestamp
+        type: timestamp
+      - name: amount
+        type: double
+      - name: currency
+        type: string
+      - name: transaction_value_vat
+        type: double
+      - name: _validated_ts
+        type: timestamp
+      - name: _quality_score
+        type: double
+        description: "1.0 if all rules pass, otherwise not present (filtered out)"
+
+  quarantine_transactions:
+    location: "data/quarantine/transactions/"
+    format: "delta"
+    partition_by: ["_quarantine_date", "_severity"]
+    columns:
+      - name: "<<all original columns>>"
+      - name: _failed_rules
+        type: "array<string>"
+        description: "List of rule IDs that failed"
+      - name: _failure_reasons
+        type: "array<string>"
+        description: "Human-readable failure messages"
+      - name: _quarantine_ts
+        type: timestamp
+      - name: _quarantine_date
+        type: date
+      - name: _severity
+        type: string
+        description: "CRITICAL, WARNING, or INFO"
+
+  quality_metrics:
+    location: "data/quality_metrics/transactions/"
+    format: "delta"
+    columns:
+      - name: run_id
+        type: string
+      - name: run_timestamp
+        type: timestamp
+      - name: rule_id
+        type: string
+      - name: rule_type
+        type: string
+      - name: records_evaluated
+        type: long
+      - name: records_passed
+        type: long
+      - name: records_failed
+        type: long
+      - name: pass_rate
+        type: double
+
+acceptance_criteria:
+  - All records passing all rules written to gold validated table
+  - All failing records captured in quarantine with complete failure context
+  - Quality metrics updated on each pipeline run
+  - Rules configurable via YAML without code changes
+  - Referential integrity check correctly identifies orphaned records
+  - Range checks correctly identify out-of-bounds values
+  - Processing completes in < 30 seconds for sample data
+
+metrics:
+  - total_records_processed
+  - records_passed
+  - records_quarantined
+  - rules_evaluated
+  - critical_failures
+  - warning_failures
+  - processing_duration_seconds
+
+ai_guidance:
+  - Create a QualityRule base class with subclasses for each rule type
+  - Use Spark's when/otherwise or filter operations for rule evaluation
+  - Consider using window functions for complex validations
+  - Load rules from YAML config at runtime
+  - Aggregate failure reasons per record before writing to quarantine
+  - Use Delta MERGE for idempotent writes to quarantine table
+  - Prefer configuration over code for rule definitions
+
+sample_rules_config: |
+  # Example config/quality_rules.yaml structure:
+  rules:
+    - id: R001
+      name: "Amount Positive"
+      type: range_check
+      field: amount
+      min: 0.01
+      max: 1000000.00
+      severity: CRITICAL
+      
+    - id: R002
+      name: "Valid Currency"
+      type: regex_match
+      field: currency
+      pattern: "^(EUR|USD|GBP|JPY|CHF|CAD|AUD)$"
+      severity: WARNING
+      
+    - id: R003
+      name: "Customer Exists"
+      type: referential_integrity
+      field: customer_id
+      reference_table: "data/silver/customers/"
+      reference_field: customer_id
+      severity: CRITICAL
+      
+    - id: R004
+      name: "Not Future Dated"
+      type: timeliness
+      field: event_timestamp
+      max_future_seconds: 300
+      max_age_days: 90
+      severity: WARNING
+      
+    - id: R005
+      name: "Transaction ID Present"
+      type: null_check
+      field: transaction_id
+      severity: CRITICAL

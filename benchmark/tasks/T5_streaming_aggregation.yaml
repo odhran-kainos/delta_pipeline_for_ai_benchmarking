@@ -1,0 +1,264 @@
+id: T5
+title: "Real-Time Streaming Aggregation with Watermarks"
+complexity: "⭐⭐⭐⭐ Expert"
+description: |
+  Implement a streaming pipeline that processes transaction events in real-time,
+  computes rolling aggregations per customer using multiple window types, and
+  handles late-arriving data with watermarks.
+  
+  This is an expert-level task that tests Spark Structured Streaming with Delta Lake
+  integration, watermarking for late data handling, stateful aggregations, and
+  exactly-once semantics.
+
+goals:
+  - Create `pipelines/streaming_aggregation_pipeline.py` using Structured Streaming
+  - Implement tumbling, sliding, and session window aggregations
+  - Configure watermarking for late data tolerance
+  - Maintain stateful operations (running balance, anomaly detection)
+  - Ensure exactly-once semantics with checkpoint recovery
+  - Capture late data beyond watermark for analysis
+  - Generate real-time monitoring metrics
+
+requirements:
+  functional:
+    - Read streaming transactions from `data/streaming/transactions/`
+    - Implement three window types:
+        - Tumbling windows (1-hour): Count, sum, avg per customer
+        - Sliding windows (24-hour window, 1-hour slide): Rolling totals
+        - Session windows (30-minute gap): Group activity sessions
+    - Configure watermarking:
+        - 10-minute watermark for late data tolerance
+        - Late data within watermark included in window results
+        - Late data beyond watermark logged to `data/late_arrivals/transactions/`
+    - Stateful operations:
+        - Running balance per customer (cumulative sum)
+        - Velocity detection: Alert if >5 transactions in 1 minute per customer
+        - Store alerts in `data/alerts/velocity/`
+    - Output aggregations to:
+        - `data/gold/customer_hourly_stats/` (tumbling)
+        - `data/gold/customer_rolling_stats/` (sliding)
+        - `data/gold/customer_sessions/` (session)
+    - Checkpoint management:
+        - Store checkpoints in `data/checkpoints/streaming_agg/`
+        - Recover from checkpoint after failure
+        - Exactly-once semantics guaranteed
+  
+  non_functional:
+    - Use Delta Lake as streaming sink (append mode)
+    - Processing latency < 5 seconds for velocity alerts
+    - Sustained throughput of 1000 events/second
+    - Graceful handling of schema evolution
+    - Memory-efficient state management
+
+input_data:
+  streaming_transactions:
+    location: "data/streaming/transactions/"
+    format: "json"
+    description: "Simulated as micro-batches for testing"
+    columns:
+      - name: transaction_id
+        type: string
+      - name: customer_id
+        type: string
+      - name: event_timestamp
+        type: timestamp
+        description: "Event time for windowing"
+      - name: amount
+        type: double
+      - name: currency
+        type: string
+      - name: transaction_type
+        type: string
+        description: "PURCHASE, REFUND, TRANSFER"
+      - name: merchant_id
+        type: string
+        nullable: true
+      - name: _arrival_ts
+        type: timestamp
+        description: "Processing time when event arrived"
+
+output_schema:
+  customer_hourly_stats:
+    location: "data/gold/customer_hourly_stats/"
+    format: "delta"
+    description: "1-hour tumbling window aggregations"
+    columns:
+      - name: customer_id
+        type: string
+      - name: window_start
+        type: timestamp
+      - name: window_end
+        type: timestamp
+      - name: transaction_count
+        type: long
+      - name: total_amount
+        type: double
+      - name: avg_amount
+        type: double
+      - name: min_amount
+        type: double
+      - name: max_amount
+        type: double
+      - name: purchase_count
+        type: long
+      - name: refund_count
+        type: long
+      - name: net_amount
+        type: double
+        description: "purchases - refunds"
+      - name: _processed_ts
+        type: timestamp
+
+  customer_rolling_stats:
+    location: "data/gold/customer_rolling_stats/"
+    format: "delta"
+    description: "24-hour sliding window (1-hour slide)"
+    columns:
+      - name: customer_id
+        type: string
+      - name: window_start
+        type: timestamp
+      - name: window_end
+        type: timestamp
+      - name: rolling_transaction_count
+        type: long
+      - name: rolling_total_amount
+        type: double
+      - name: rolling_avg_amount
+        type: double
+      - name: _processed_ts
+        type: timestamp
+
+  customer_sessions:
+    location: "data/gold/customer_sessions/"
+    format: "delta"
+    description: "Session windows (30-min gap)"
+    columns:
+      - name: customer_id
+        type: string
+      - name: session_start
+        type: timestamp
+      - name: session_end
+        type: timestamp
+      - name: session_duration_minutes
+        type: double
+      - name: transactions_in_session
+        type: long
+      - name: session_total_amount
+        type: double
+      - name: _processed_ts
+        type: timestamp
+
+  velocity_alerts:
+    location: "data/alerts/velocity/"
+    format: "delta"
+    columns:
+      - name: alert_id
+        type: string
+      - name: customer_id
+        type: string
+      - name: alert_timestamp
+        type: timestamp
+      - name: window_start
+        type: timestamp
+      - name: window_end
+        type: timestamp
+      - name: transaction_count
+        type: long
+      - name: threshold_exceeded
+        type: long
+        description: "The threshold that was exceeded (e.g., 5)"
+      - name: transaction_ids
+        type: "array<string>"
+        description: "List of transaction IDs in the window"
+      - name: total_amount
+        type: double
+      - name: _processed_ts
+        type: timestamp
+
+  late_arrivals:
+    location: "data/late_arrivals/transactions/"
+    format: "delta"
+    columns:
+      - name: "<<all original columns>>"
+      - name: _watermark_at_arrival
+        type: timestamp
+        description: "Watermark value when event was deemed late"
+      - name: _lateness_seconds
+        type: long
+        description: "How late the event was beyond watermark"
+      - name: _captured_ts
+        type: timestamp
+
+acceptance_criteria:
+  - Tumbling window aggregations correctly compute per-hour stats
+  - Sliding window shows 24-hour rolling totals updated hourly
+  - Session windows correctly group transactions with <30 min gaps
+  - Late data within 10-minute watermark included in window results
+  - Late data beyond watermark captured in late_arrivals table
+  - Velocity alerts generated within 5 seconds of threshold breach
+  - Exactly-once semantics: no duplicate aggregations after restart
+  - Checkpoint recovery: pipeline resumes from last committed offset
+  - Sustained throughput of 1000 events/second for 60 seconds
+
+metrics:
+  - events_processed_total
+  - events_per_second
+  - late_events_within_watermark
+  - late_events_beyond_watermark
+  - velocity_alerts_generated
+  - processing_latency_p50_ms
+  - processing_latency_p99_ms
+  - checkpoint_duration_ms
+  - state_store_size_mb
+
+ai_guidance:
+  - Use `spark.readStream` with `.format("json")` and file source
+  - Set watermark with `.withWatermark("event_timestamp", "10 minutes")`
+  - Use `.groupBy(window(...), "customer_id")` for window aggregations
+  - For session windows, use `session_window()` function
+  - Velocity detection requires custom stateful processing with `flatMapGroupsWithState`
+  - Or use a 1-minute tumbling window with count filter
+  - Write to Delta with `.writeStream.format("delta").outputMode("append")`
+  - Checkpoint location must be set: `.option("checkpointLocation", "...")`
+  - For testing, use `.trigger(availableNow=True)` or `processingTime`
+  - Consider using foreachBatch for complex multi-output scenarios
+  - Late data handling: filter events where event_time < watermark in foreachBatch
+
+testing_approach: |
+  For benchmark testing, streaming is simulated:
+  1. Generate batch files in `data/streaming/transactions/` 
+  2. Run pipeline with `trigger(availableNow=True)` to process all available data
+  3. Add new files and re-run to test incremental processing
+  4. Delete checkpoint and re-run to test recovery
+  5. Generate late data and verify watermark handling
+
+example_streaming_code: |
+  # Example structure (not complete implementation):
+  
+  stream_df = (spark.readStream
+      .format("json")
+      .schema(transaction_schema)
+      .load("data/streaming/transactions/"))
+  
+  # Add watermark
+  watermarked = stream_df.withWatermark("event_timestamp", "10 minutes")
+  
+  # Tumbling window aggregation
+  hourly_stats = (watermarked
+      .groupBy(
+          window("event_timestamp", "1 hour"),
+          "customer_id"
+      )
+      .agg(
+          count("*").alias("transaction_count"),
+          sum("amount").alias("total_amount"),
+          avg("amount").alias("avg_amount")
+      ))
+  
+  # Write to Delta
+  query = (hourly_stats.writeStream
+      .format("delta")
+      .outputMode("append")
+      .option("checkpointLocation", "data/checkpoints/streaming_agg/hourly")
+      .start("data/gold/customer_hourly_stats/"))

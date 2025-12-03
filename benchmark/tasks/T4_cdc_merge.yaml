@@ -1,0 +1,199 @@
+id: T4
+title: "Incremental CDC Merge with SCD Type 2"
+complexity: "⭐⭐⭐ Advanced"
+description: |
+  Implement a Change Data Capture (CDC) pipeline that processes customer change events,
+  maintains full history using Slowly Changing Dimension Type 2 (SCD2), and handles
+  late-arriving and out-of-order data correctly.
+  
+  SCD Type 2 is a cornerstone of production data warehouses. This task tests Delta Lake's
+  MERGE capabilities, temporal data modeling, and handling of complex edge cases.
+
+goals:
+  - Create `pipelines/cdc_customers_pipeline.py` implementing SCD Type 2 pattern
+  - Process INSERT, UPDATE, and DELETE change events correctly
+  - Maintain complete history with validity windows
+  - Handle out-of-order events using sequence IDs
+  - Handle late-arriving data (events older than existing records)
+  - Ensure idempotent processing (re-running same batch produces same result)
+  - Generate audit metrics for observability
+
+requirements:
+  functional:
+    - Read CDC events from `data/raw/customer_changes/`
+    - Implement SCD Type 2 with:
+        - `_valid_from`: Effective start timestamp
+        - `_valid_to`: Effective end timestamp (NULL for current record)
+        - `_is_current`: Boolean flag for latest version
+        - `_version`: Incrementing version number per customer
+        - `_change_type`: Original change type (INSERT/UPDATE/DELETE)
+    - Write to `data/gold/customers_history/`
+    - Handle edge cases:
+        - Out-of-order events: Use `_sequence_id` for ordering within batch
+        - Late arrivals: Insert into correct position in history chain
+        - Duplicate events: Skip if identical to existing record
+        - Soft deletes: Mark as inactive (`status='DELETED'`), preserve history
+    - Support point-in-time queries:
+        - `SELECT * WHERE _valid_from <= @ts AND (_valid_to > @ts OR _valid_to IS NULL)`
+    - Generate audit metrics to `data/audit/cdc_customers/`
+  
+  non_functional:
+    - Incremental processing: Only process new/unprocessed changes
+    - Use Delta MERGE for efficient upserts
+    - Partition by `_valid_from` date for query optimization
+    - Processing time < 60 seconds for 100K change events
+    - Exactly-once semantics with proper checkpointing
+
+input_data:
+  customer_changes:
+    location: "data/raw/customer_changes/"
+    format: "json"
+    columns:
+      - name: customer_id
+        type: string
+        description: "Primary key"
+      - name: name
+        type: string
+      - name: email
+        type: string
+      - name: address
+        type: string
+      - name: phone
+        type: string
+        nullable: true
+      - name: status
+        type: string
+        description: "ACTIVE, INACTIVE, DELETED"
+      - name: _change_type
+        type: string
+        description: "INSERT, UPDATE, DELETE"
+      - name: _change_ts
+        type: timestamp
+        description: "When the change occurred in source system"
+      - name: _sequence_id
+        type: long
+        description: "Monotonic sequence for ordering within batch"
+      - name: _batch_id
+        type: string
+        description: "Batch identifier for tracking"
+
+output_schema:
+  customers_history:
+    location: "data/gold/customers_history/"
+    format: "delta"
+    partition_by: ["_valid_from_date"]
+    columns:
+      - name: customer_id
+        type: string
+      - name: name
+        type: string
+      - name: email
+        type: string
+      - name: address
+        type: string
+      - name: phone
+        type: string
+      - name: status
+        type: string
+      - name: _valid_from
+        type: timestamp
+        description: "Start of validity period"
+      - name: _valid_to
+        type: timestamp
+        nullable: true
+        description: "End of validity period (NULL = current)"
+      - name: _valid_from_date
+        type: date
+        description: "Partition column derived from _valid_from"
+      - name: _is_current
+        type: boolean
+        description: "True if this is the current version"
+      - name: _version
+        type: integer
+        description: "Version number for this customer (1, 2, 3...)"
+      - name: _change_type
+        type: string
+        description: "Original change type that created this version"
+      - name: _processed_ts
+        type: timestamp
+        description: "When this record was processed by pipeline"
+
+  audit_metrics:
+    location: "data/audit/cdc_customers/"
+    format: "delta"
+    columns:
+      - name: batch_id
+        type: string
+      - name: run_timestamp
+        type: timestamp
+      - name: records_received
+        type: long
+      - name: inserts_processed
+        type: long
+      - name: updates_processed
+        type: long
+      - name: deletes_processed
+        type: long
+      - name: late_arrivals
+        type: long
+      - name: duplicates_skipped
+        type: long
+      - name: errors
+        type: long
+      - name: processing_duration_seconds
+        type: double
+
+acceptance_criteria:
+  - INSERT events create new record with _version=1, _is_current=true
+  - UPDATE events close previous version (_valid_to, _is_current=false) and insert new version
+  - DELETE events mark customer as DELETED status but preserve full history
+  - Out-of-order events processed correctly using _sequence_id
+  - Late arrivals inserted into correct position in history chain
+  - Duplicate events skipped (idempotent processing)
+  - Point-in-time query returns correct customer state for any timestamp
+  - Re-running same batch produces identical results
+  - Processing time < 60 seconds for 100K events
+
+metrics:
+  - records_received
+  - inserts_processed
+  - updates_processed
+  - deletes_processed
+  - late_arrivals_handled
+  - duplicates_skipped
+  - versions_created
+  - processing_duration_seconds
+
+ai_guidance:
+  - Use Delta Lake MERGE with complex conditions for SCD2 updates
+  - Consider collecting current records for matching before MERGE
+  - Window functions (row_number, lead/lag) useful for version numbering
+  - Handle the "close previous and insert new" atomically
+  - For late arrivals, may need to update _valid_to of record before and _valid_from of record after
+  - Track processed sequence IDs to avoid reprocessing
+  - Use transactions/savepoints if available for atomicity
+  - Test edge cases thoroughly: first insert, update after delete, rapid updates
+
+example_scenarios: |
+  # Scenario 1: Simple Insert then Update
+  Event 1: INSERT customer_id=C001, name="John Doe", _change_ts=2025-01-01 10:00:00
+  Event 2: UPDATE customer_id=C001, name="John Smith", _change_ts=2025-01-02 10:00:00
+  
+  Result:
+  | customer_id | name       | _valid_from         | _valid_to           | _is_current | _version |
+  |-------------|------------|---------------------|---------------------|-------------|----------|
+  | C001        | John Doe   | 2025-01-01 10:00:00 | 2025-01-02 10:00:00 | false       | 1        |
+  | C001        | John Smith | 2025-01-02 10:00:00 | NULL                | true        | 2        |
+  
+  # Scenario 2: Late Arrival (event 2 arrives after event 3)
+  Event 1: INSERT _change_ts=2025-01-01
+  Event 3: UPDATE _change_ts=2025-01-03 (arrives first)
+  Event 2: UPDATE _change_ts=2025-01-02 (arrives late)
+  
+  Result: History chain correctly shows all three versions in temporal order
+  
+  # Scenario 3: Soft Delete
+  Event 1: INSERT status=ACTIVE
+  Event 2: DELETE
+  
+  Result: Record with status=DELETED, _is_current=true (history preserved)

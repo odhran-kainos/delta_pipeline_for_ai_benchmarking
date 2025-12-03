@@ -1,0 +1,91 @@
+# Sample quality rules configuration for T3 benchmark task
+# This file defines data quality rules for validating silver-layer transactions
+
+rules:
+  # Critical rules - failures block data from reaching gold layer
+  - id: R001
+    name: "Transaction ID Required"
+    description: "Every transaction must have a non-null transaction_id"
+    type: null_check
+    field: transaction_id
+    severity: CRITICAL
+    enabled: true
+
+  - id: R002
+    name: "Amount Positive and Reasonable"
+    description: "Transaction amount must be between 0.01 and 1,000,000"
+    type: range_check
+    field: amount
+    min: 0.01
+    max: 1000000.00
+    severity: CRITICAL
+    enabled: true
+
+  - id: R003
+    name: "Customer Exists"
+    description: "Customer ID must exist in customer reference table"
+    type: referential_integrity
+    field: customer_id
+    reference_table: "data/silver/customers/"
+    reference_field: customer_id
+    severity: CRITICAL
+    enabled: true
+
+  # Warning rules - failures flagged but may still proceed
+  - id: R004
+    name: "Valid Currency Code"
+    description: "Currency must be a valid ISO 4217 code"
+    type: regex_match
+    field: currency
+    pattern: "^(EUR|USD|GBP|JPY|CHF|CAD|AUD)$"
+    severity: WARNING
+    enabled: true
+
+  - id: R005
+    name: "Not Future Dated"
+    description: "Event timestamp should not be more than 5 minutes in the future"
+    type: timeliness
+    field: event_timestamp
+    max_future_seconds: 300
+    severity: WARNING
+    enabled: true
+
+  - id: R006
+    name: "Not Too Old"
+    description: "Event timestamp should not be more than 90 days old"
+    type: timeliness
+    field: event_timestamp
+    max_age_days: 90
+    severity: WARNING
+    enabled: true
+
+  - id: R007
+    name: "Customer ID Format"
+    description: "Customer ID should match expected format"
+    type: regex_match
+    field: customer_id
+    pattern: "^C[0-9]+$"
+    severity: INFO
+    enabled: true
+
+  - id: R008
+    name: "VAT Calculation Valid"
+    description: "VAT calculation should be approximately 20% of amount"
+    type: custom
+    expression: "abs(transaction_value_vat - (amount * 1.20)) < 0.01"
+    severity: WARNING
+    enabled: true
+
+# Global settings
+settings:
+  # Stop processing if critical failure rate exceeds threshold
+  critical_failure_threshold: 0.05  # 5%
+  
+  # Include warnings in quality score calculation
+  include_warnings_in_score: true
+  
+  # Retry quarantined records after this many hours
+  quarantine_retry_hours: 24
+  
+  # Maximum records to process per batch (0 = unlimited)
+  max_batch_size: 0
