@@ -1,0 +1,74 @@
+task: T1
+tool: 001-ingest-transactions-bronze
+date: '2025-11-20'
+automation_version: 1.0.0
+automation_coverage: 65.0%
+scores:
+  correctness:
+    score: 1
+    weight: 0.25
+    method: automated
+    confidence: high
+    evidence: 'pytest: no tests found | Constitution violations: 1'
+    issues:
+    - No test execution results
+    - 'Missing metrics: rows_raw, rows_loaded, rows_invalid'
+    - 'bronze_transactions_pipeline.py: Uses overwrite mode (should be append)'
+  maintainability:
+    score: 2
+    weight: 0.15
+    method: automated
+    confidence: medium
+    evidence: 'pylint: 0.0/10 | complexity: 2.3 (grade A) | type hints: ~100% coverage'
+  data_quality:
+    score: null
+    weight: 0.15
+    method: manual
+    confidence: n/a
+    evidence: Manual review required
+  planning:
+    score: null
+    weight: 0.15
+    method: manual
+    confidence: n/a
+    evidence: Manual review required
+  performance:
+    score: 4
+    weight: 0.1
+    method: automated
+    confidence: medium
+    evidence: 'duration: not available | optimizations: 3 found'
+  documentation:
+    score: 4
+    weight: 0.1
+    method: automated
+    confidence: medium
+    evidence: 'README: found (quality: 3/3) | docstrings: 69% coverage | comments:
+      0.0% of LOC | examples: found'
+  security:
+    score: 1
+    weight: 0.05
+    method: automated
+    confidence: high
+    evidence: 'bandit: 0H/0M/0L | scanned: 1056 LOC | secret patterns: 9 found'
+    issues:
+    - 'Potential hardcoded secret: analyze_task_diff.py:282'
+    - 'Potential hardcoded secret: analyze_task_diff.py:285'
+    - 'Potential hardcoded secret: analyze_task_diff.py:286'
+    - 'Potential hardcoded secret: analyze_task_diff.py:287'
+    - 'Potential hardcoded secret: analyze_task_diff.py:288'
+    - 'Potential hardcoded secret: analyze_task_diff.py:535'
+    - 'Potential hardcoded secret: security.py:72'
+    - 'Potential hardcoded secret: security.py:74'
+    - 'Potential hardcoded secret: security.py:143'
+  productivity:
+    score: null
+    weight: 0.05
+    method: manual
+    confidence: n/a
+    evidence: Manual review required
+total_score_automated: 28.0
+notes:
+- This scorecard was generated automatically using static analysis.
+- Manual review is required for Planning and Productivity dimensions.
+- Some dimension scores may have medium/low confidence.
