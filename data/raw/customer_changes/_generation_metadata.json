@@ -1,0 +1,13 @@
+{
+  "total_events": 385,
+  "unique_customers": 100,
+  "batches": 2,
+  "inserts": 101,
+  "updates": 255,
+  "deletes": 29,
+  "late_arrivals": 11,
+  "out_of_order": 19,
+  "duplicates": 7,
+  "seed": 42,
+  "generated_at": "2025-12-03T14:35:08.017408"
+}
